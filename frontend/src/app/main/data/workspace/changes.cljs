@@ -188,6 +188,8 @@
          :hint-events @st/last-events
          :hint-origin (ptk/type origin)
          :changes redo-changes
+         :redo-changes redo-changes
+         :undo-changes undo-changes
          :page-id page-id
          :frames frames
          :save-undo? save-undo?
