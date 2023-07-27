@@ -166,6 +166,43 @@
                 (remove #(= uuid/zero %)))
           changes)))
 
+(defn commit-changes*
+  [{:keys [redo-changes undo-changes origin save-undo? affected-frames
+           file-id page-id undo-group tags stack-undo?]}]
+
+  (dm/assert!
+   "expect valid vector of changes"
+   (and (cpc/valid-changes? redo-changes)
+        (cpc/valid-changes? undo-changes)))
+
+  (ptk/reify ::commit-changes*
+    cljs.core/IDeref
+    (-deref [_]
+      {:file-id file-id
+       :redo-changes redo-changes
+       :undo-changes undo-changes
+       :page-id page-id
+       :frames affected-frames
+       :save-undo? save-undo?
+       :undo-group undo-group
+       :tags tags
+       :stack-undo? stack-undo?})
+
+    ptk/UpdateEvent
+    (update [_ state]
+      (let [current-file-id (get state :current-file-id)
+            file-id         (or file-id current-file-id)
+            path            (if (= file-id current-file-id)
+                              [:workspace-data]
+                              [:workspace-libraries file-id :data])]
+
+        (update-in state path (fn [file]
+                                (-> file
+                                    (cp/process-changes redo-changes false)
+                                    (ctst/update-object-indices page-id))))))))
+
+
+
 (defn commit-changes
   "Schedules a list of changes to execute now, and add the corresponding undo changes to
    the undo stack.
@@ -175,87 +212,51 @@
    - undo-group: if some consecutive changes (or even transactions) share the same
                  undo-group, they will be undone or redone in a single step
    "
-  [{:keys [redo-changes undo-changes
-           origin save-undo? file-id undo-group tags stack-undo?]
-    :or {save-undo? true stack-undo? false tags #{} undo-group (uuid/next)}}]
-  (let [error   (volatile! nil)
-        page-id (:current-page-id @st/state)
-        frames  (changed-frames redo-changes (wsh/lookup-page-objects @st/state))]
-    (ptk/reify ::commit-changes
-      cljs.core/IDeref
-      (-deref [_]
-        {:file-id file-id
-         :hint-events @st/last-events
-         :hint-origin (ptk/type origin)
-         :changes redo-changes
-         :redo-changes redo-changes
-         :undo-changes undo-changes
-         :page-id page-id
-         :frames frames
-         :save-undo? save-undo?
-         :undo-group undo-group
-         :tags tags
-         :stack-undo? stack-undo?})
+  [{:keys [redo-changes undo-changes origin save-undo?
+           file-id undo-group tags stack-undo?]
+    :or {save-undo? true
+         stack-undo? false
+         undo-group (uuid/next)
+         tags #{}}
+    :as params}]
+  (ptk/reify ::commit-changes
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [;; adds page-id to page changes (that have the `id` field instead)
+            add-page-id
+            (fn [{:keys [id type page] :as change}]
+              (cond-> change
+                (and (page-change? type) (nil? (:page-id change)))
+                (assoc :page-id (or id (:id page)))))
 
-      ptk/UpdateEvent
-      (update [_ state]
-        (log/info :msg "commit-changes"
-                  :js/undo-group (str undo-group)
-                  :js/file-id (str (or file-id "nil"))
-                  :js/redo-changes redo-changes
-                  :js/undo-changes undo-changes)
-        (let [current-file-id (get state :current-file-id)
-              file-id         (or file-id current-file-id)
-              path            (if (= file-id current-file-id)
-                                [:workspace-data]
-                                [:workspace-libraries file-id :data])]
+            changes-by-pages
+            (->> redo-changes
+                 (map add-page-id)
+                 (remove #(nil? (:page-id %)))
+                 (group-by :page-id))
 
-          (try
-            (dm/assert!
-             "expect valid vector of changes"
-             (and (cpc/valid-changes? redo-changes)
-                  (cpc/valid-changes? undo-changes)))
+            process-page-changes
+            (fn [[page-id _changes]]
+              (update-indices page-id redo-changes))
 
-            (update-in state path (fn [file]
-                                    (-> file
-                                        (cp/process-changes redo-changes false)
-                                        (ctst/update-object-indices page-id))))
+            page-id (:current-page-id state)
+            frames  (changed-frames redo-changes (wsh/lookup-page-objects state))]
 
-            (catch :default err
-              (when-let [data (ex-data err)]
-                (js/console.log (ex/explain data)))
+        (rx/concat
+         (rx/of (commit-changes*
+                 (-> params
+                     (assoc :undo-group undo-group)
+                     (assoc :tags tags)
+                     (assoc :stack-undo? stack-undo?)
+                     (assoc :save-undo? save-undo?)
+                     (assoc :page-id page-id)
+                     (assoc :affected-frames frames))))
 
-              (when (ex/error? err)
-                (js/console.log (.-stack ^js err)))
-              (vreset! error err)
-              state))))
+         (rx/from (map process-page-changes changes-by-pages))
 
-      ptk/WatchEvent
-      (watch [_ _ _]
-        (when-not @error
-          (let [;; adds page-id to page changes (that have the `id` field instead)
-                add-page-id
-                (fn [{:keys [id type page] :as change}]
-                  (cond-> change
-                    (and (page-change? type) (nil? (:page-id change)))
-                    (assoc :page-id (or id (:id page)))))
-
-                changes-by-pages
-                (->> redo-changes
-                     (map add-page-id)
-                     (remove #(nil? (:page-id %)))
-                     (group-by :page-id))
-
-                process-page-changes
-                (fn [[page-id _changes]]
-                  (update-indices page-id redo-changes))]
-
-            (rx/concat
-             (rx/from (map process-page-changes changes-by-pages))
-
-             (when (and save-undo? (seq undo-changes))
-               (let [entry {:undo-changes undo-changes
-                            :redo-changes redo-changes
-                            :undo-group undo-group
-                            :tags tags}]
-                 (rx/of (dwu/append-undo entry stack-undo?)))))))))))
+         (when (and save-undo? (seq undo-changes))
+           (let [entry {:undo-changes undo-changes
+                        :redo-changes redo-changes
+                        :undo-group undo-group
+                        :tags tags}]
+             (rx/of (dwu/append-undo entry stack-undo?)))))))))
