@@ -6,6 +6,7 @@
 
 (ns app.main.data.workspace.persistence
   (:require
+   [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.logging :as log]
    [app.common.pages :as cp]
@@ -37,8 +38,54 @@
 (def conj* (fnil conj []))
 
 
+(defn apply-changes-locally
+  [file-id {:keys [revn changes]}]
+  (dm/assert! (uuid? file-id))
+  (dm/assert! (int? revn))
+  (dm/assert! (cpc/valid-changes? changes))
+
+  #_(ptk/reify ::applly-changes-locally
+    ptk/UpdateEvent
+    (update [_ state]
+      ;; NOTE: we don't set the file features context here because
+      ;; there are no useful context for code that need to be executed
+      ;; on the frontend side
+
+      (if-let [current-file-id (:current-file-id state)]
+        (if (= file-id current-file-id)
+          (let [changes (group-by :page-id changes)]
+            (-> state
+                (update-in [:workspace-file :revn] max revn)
+                (update :workspace-data (fn [file]
+                                          (loop [fdata file
+                                                 entries (seq changes)]
+                                            (if-let [[page-id changes] (first entries)]
+                                              (recur (-> fdata
+                                                         (cp/process-changes changes)
+                                                         (ctst/update-object-indices page-id))
+                                                     (rest entries))
+                                              fdata))))))
+          (-> state
+              (d/update-in-when [:workspace-libraries file-id :revn] max revn)
+              (d/update-in-when [:workspace-libraries file-id :data] cp/process-changes changes)))
+
+        state))
+
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (->> (rx/from lagged)
+           (rx/merge-map
+            (fn [{:keys [changes] :as entry}]
+              (rx/merge
+               (rx/from
+                (for [[page-id changes] (group-by :page-id changes)]
+                  (dch/update-indices page-id changes)))
+               (rx/of (shapes-changes-persisted file-id entry)))))))))
+
+
+
 (defn update-thumbnails
-  [changes]
+  [file-id changes]
   (ptk/reify ::update-thumbnails
     ptk/WatchEvent
     (watch [_ state _]
@@ -75,7 +122,11 @@
   ;;                         (log/debug :hint "changes persisted" :lagged (count lagged))
   ;;                         (rx/concat
   ;;                          (rx/of (update-thumbnails changes))
-  ;;                          (rx/of
+
+  ;;                          (if (seq lagged)
+  ;;                            (rx/of (apply-changes-locally file-id lagged))
+  ;;                            (rx/empty))
+
 
   ;;                          (rx/merge
   ;;                           (->> (rx/from (concat lagged commits))
@@ -410,8 +461,8 @@
                                                      (rest entries))
                                               fdata))))))
           (-> state
-              (update-in [:workspace-libraries file-id :revn] max revn)
-              (update-in [:workspace-libraries file-id :data] cp/process-changes changes)))
+              (d/update-in-when [:workspace-libraries file-id :revn] max revn)
+              (d/update-in-when [:workspace-libraries file-id :data] cp/process-changes changes)))
 
         state))))
 
