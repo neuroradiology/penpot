@@ -37,63 +37,61 @@
 (def conj* (fnil conj []))
 
 
+(defn update-thumbnails
+  [changes]
+  (ptk/reify ::update-thumbnails
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [updates (-> (group-by :page-id changes)
+                        (update-vals #(into #{} (mapcat :frames) %)))]
+
+        (->> (rx/from updates)
+             (rx/mapcat (fn [[page-id frames]]
+                          (->> frames (map #(vector page-id %)))))
+             (rx/map (fn [[page-id frame-id]] (dwt/update-thumbnail file-id page-id frame-id))))))))
+
 (defn persist-commit
-  [commit-id]
-  )
-;;   (ptk/reify ::persist-commit
-;;     ptk/WatchEven
-;;     (watch [_ state stream]
-;;       (when-let [{:keys [file-id changes]} (dm/get-in state [:workspace-pending :index commit-id])]
-;;         (let [;; this features set does not includes the ffeat/enabled
-;;               ;; because they are already available on the backend and
-;;               ;; this request provides a set of features to enable in
-;;               ;; this request.
-;;               features (cond-> #{}
-;;                          (features/active-feature? state :components-v2)
-;;                          (conj "components/v2"))
-;;               sid      (:session-id state)
-;;               params   {:id file-id
-;;                         :revn file-revn
-;;                         :session-id sid
-;;                         :changes-with-metadata (into [] changes)
-;;                         :features features}]
+  [commit-id])
+  ;; (ptk/reify ::persist-commit
+  ;;   ptk/WatchEvent
+  ;;   (watch [_ state stream]
+  ;;     (when-let [{:keys [file-id changes]} (dm/get-in state [:workspace-pending :index commit-id])]
+  ;;       (let [;; this features set does not includes the ffeat/enabled
+  ;;             ;; because they are already available on the backend and
+  ;;             ;; this request provides a set of features to enable in
+  ;;             ;; this request.
+  ;;             features (cond-> #{}
+  ;;                        (features/active-feature? state :components-v2)
+  ;;                        (conj "components/v2"))
+  ;;             sid      (:session-id state)
+  ;;             params   {:id file-id
+  ;;                       :revn file-revn
+  ;;                       :session-id sid
+  ;;                       :changes (vec changes)
+  ;;                       :features features}]
 
-;;         (->> (rp/cmd! :update-file params)
-;;              (rx/mapcat (fn [lagged]
-;;                           (log/debug :hint "changes persisted" :lagged (count lagged))
-;;                           (let [frame-updates
-;;                                 (-> (group-by :page-id changes)
-;;                                     (update-vals #(into #{} (mapcat :frames) %)))
+  ;;       (->> (rp/cmd! :update-file params)
+  ;;            (rx/mapcat (fn [lagged]
+  ;;                         (log/debug :hint "changes persisted" :lagged (count lagged))
+  ;;                         (rx/concat
+  ;;                          (rx/of (update-thumbnails changes))
+  ;;                          (rx/of
 
-;;                                 commits
-;;                                 (->> @pending-commits
-;;                                      (map #(assoc % :revn file-revn)))]
-
-;;                             (rx/concat
-;;                              (rx/merge
-;;                               (->> (rx/from frame-updates)
-;;                                    (rx/mapcat (fn [[page-id frames]]
-;;                                                 (->> frames (map #(vector page-id %)))))
-;;                                    (rx/map (fn [[page-id frame-id]] (dwt/update-thumbnail file-id page-id frame-id))))
-
-;;                               (->> (rx/from (concat lagged commits))
-;;                                    (rx/merge-map
-;;                                     (fn [{:keys [changes] :as entry}]
-;;                                       (rx/merge
-;;                                        (rx/from
-;;                                         (for [[page-id changes] (group-by :page-id changes)]
-;;                                           (dch/update-indices page-id changes)))
-;;                                        (rx/of (shapes-changes-persisted file-id entry)))))))
-
-;;                              (rx/of (shapes-changes-persisted-finished))))))
-;;              (rx/catch (fn [cause]
-;;                          (rx/concat
-;;                           (if (= :authentication (:type cause))
-;;                             (rx/empty)
-;;                             (rx/of (rt/assign-exception cause)))
-;;                           (rx/throw cause)))))))))
-
-
+  ;;                          (rx/merge
+  ;;                           (->> (rx/from (concat lagged commits))
+  ;;                                (rx/merge-map
+  ;;                                 (fn [{:keys [changes] :as entry}]
+  ;;                                   (rx/merge
+  ;;                                    (rx/from
+  ;;                                     (for [[page-id changes] (group-by :page-id changes)]
+  ;;                                       (dch/update-indices page-id changes)))
+  ;;                                    (rx/of (shapes-changes-persisted file-id entry)))))))
+  ;;            (rx/catch (fn [cause]
+  ;;                        (rx/concat
+  ;;                         (if (= :authentication (:type cause))
+  ;;                           (rx/empty)
+  ;;                           (rx/of (rt/assign-exception cause)))
+  ;;                         (rx/throw cause))))))))))
 
 (defn- run-persistence
   []
