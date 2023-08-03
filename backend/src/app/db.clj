@@ -391,6 +391,35 @@
   ([^Connection conn ^Savepoint sp]
    (.rollback conn sp)))
 
+
+(defn tx-call
+  [cfg f]
+  (cond
+    (connection? cfg)
+    (tx-call {::conn cfg} f)
+
+    (pool? cfg)
+    (tx-call {::pool cfg} f)
+
+    (::conn cfg)
+    (let [conn (::conn cfg)
+          sp   (savepoint conn)]
+      (try
+        (let [result (f cfg)]
+          (release! sp)
+          result)
+        (catch Throwable cause
+          (rollback! sp)
+          (throw cause))))
+
+    (::pool cfg)
+    (with-atomic [conn (::pool cfg)]
+      (f (assoc cfg ::conn conn)))
+
+    :else
+    (throw (IllegalArgumentException. "invalid arguments"))))
+
+
 (defn interval
   [o]
   (cond
