@@ -173,7 +173,7 @@
           changes)))
 
 (defn commit-changes*
-  [{:keys [redo-changes undo-changes origin save-undo? affected-frames
+  [{:keys [commit-id redo-changes undo-changes origin save-undo? affected-frames
            file-id file-revn page-id undo-group tags stack-undo?]}]
 
   (dm/assert!
@@ -181,30 +181,34 @@
    (and (cpc/valid-changes? redo-changes)
         (cpc/valid-changes? undo-changes)))
 
-  (ptk/reify ::commit-changes*
-    cljs.core/IDeref
-    (-deref [_]
-      {:file-id file-id
-       :file-revn file-revn
-       :changes redo-changes
-       :undo-changes undo-changes
-       :frames affected-frames
-       :save-undo? save-undo?
-       :undo-group undo-group
-       :tags tags
-       :stack-undo? stack-undo?})
+  (let [commit-id (or commit-id (uuid/next))
+        commit    {:id commit-id
+                   :origin (ptk/type origin)
+                   :file-id file-id
+                   :file-revn file-revn
+                   :changes redo-changes
+                   :undo-changes undo-changes
+                   :frames affected-frames
+                   :save-undo? save-undo?
+                   :undo-group undo-group
+                   :tags tags
+                   :stack-undo? stack-undo?}]
 
-    ptk/UpdateEvent
-    (update [_ state]
-      (let [current-file-id (get state :current-file-id)
-            path            (if (= file-id current-file-id)
-                              [:workspace-data]
-                              [:workspace-libraries file-id :data])]
+    (ptk/reify ::commit-changes*
+      cljs.core/IDeref
+      (-deref [_] commit)
 
-        (d/update-in-when state path (fn [file]
-                                       (let [file (cp/process-changes file redo-changes false)
-                                             pids (into #{} (map :page-id) redo-changes)]
-                                         (reduce #(ctst/update-object-indices %1 %2) pids))))))))
+      ptk/UpdateEvent
+      (update [_ state]
+        (let [current-file-id (get state :current-file-id)
+              path            (if (= file-id current-file-id)
+                                [:workspace-data]
+                                [:workspace-libraries file-id :data])]
+
+          (d/update-in-when state path (fn [file]
+                                         (let [file (cp/process-changes file redo-changes false)
+                                               pids (into #{} (map :page-id) redo-changes)]
+                                           (reduce #(ctst/update-object-indices %1 %2) file pids)))))))))
 
 
 (defn- resolve-file-revn
@@ -249,6 +253,8 @@
                     (assoc :affected-frames frames)
                     (commit-changes*))))
 
+
+       ;; FIXME: move down to the commit changes reactivity?????
        ;; PROCESS INDEXES
        (letfn [(add-page-id [{:keys [id type page] :as change}]
                  (cond-> change

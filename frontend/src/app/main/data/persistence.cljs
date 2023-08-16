@@ -27,20 +27,8 @@
 (log/set-level! :trace)
 
 (def running (atom false))
+(def revn-data (atom {}))
 (def queue-conj (fnil conj #queue []))
-
-(defn update-thumbnails
-  [file-id changes]
-  (ptk/reify ::update-thumbnails
-    ptk/WatchEvent
-    (watch [_ state _]
-      (let [updates (-> (group-by :page-id changes)
-                        (update-vals #(into #{} (mapcat :frames) %)))]
-
-        (->> (rx/from updates)
-             (rx/mapcat (fn [[page-id frames]]
-                          (->> frames (map #(vector page-id %)))))
-             (rx/map (fn [[page-id frame-id]] (dwt/update-thumbnail file-id page-id frame-id))))))))
 
 (defn- discard-commit
   [commit-id]
@@ -67,20 +55,23 @@
                          (features/active-feature? state :components-v2)
                          (conj "components/v2"))
               sid      (:session-id state)
+              revn     (max file-revn (get @revn-data file-id 0))
               params   {:id file-id
-                        :revn file-revn
+                        :revn revn
                         :session-id sid
+                        :origin (:origin commit)
                         :commit-id commit-id
                         :changes (vec changes)
                         :features features}]
 
           (->> (rp/cmd! :update-file params)
-               (rx/mapcat (fn [lagged]
+               (rx/mapcat (fn [{:keys [revn lagged] :as response}]
                             (log/debug :hint "changes persisted" :commit-id commit-id :lagged (count lagged))
-                            ;; FIXME: handle lagged here
+                            (swap! revn-data update file-id (fnil max revn) (:revn response))
 
-                            (rx/of (update-thumbnails file-id changes)
-                                   (ptk/data-event ::commit-persisted commit-id))))
+                            ;; FIXME: handle lagged here
+                            (rx/of (ptk/data-event ::commit-persisted commit)
+                                   #_(ptk/data-event ::file-revn-updated {:file-id file-id :revn revn}))))
 
                (rx/catch (fn [cause]
                            (rx/concat
@@ -117,9 +108,9 @@
                 (->> stream
                      (rx/filter (ptk/type? ::commit-persisted))
                      (rx/map deref)
-                     (rx/filter #(= commit-id %))
+                     (rx/filter #(= commit-id (:id %)))
                      (rx/take 1)
-                     (rx/mapcat (fn [commit-id]
+                     (rx/mapcat (fn [_]
                                   (rx/of (discard-commit commit-id)
                                          (run-persistence))))))
                (rx/take-until
@@ -158,8 +149,6 @@
              (rx/filter dch/commit-changes?)
              (rx/map deref)
              (rx/filter (complement empty?))
-             (rx/map (fn [commit]
-                       (assoc commit :id (uuid/next))))
              (rx/map append-commit)
              (rx/take-until (rx/delay 100 stoper))
              (rx/finalize (fn []

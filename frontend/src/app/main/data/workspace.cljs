@@ -39,6 +39,7 @@
    [app.main.data.messages :as msg]
    [app.main.data.modal :as modal]
    [app.main.data.users :as du]
+   [app.main.data.persistence :as dp]
    [app.main.data.workspace.bool :as dwb]
    [app.main.data.workspace.changes :as dch]
    [app.main.data.workspace.collapse :as dwco]
@@ -86,6 +87,7 @@
    [potok.core :as ptk]))
 
 (def default-workspace-local {:zoom 1})
+(log/set-level! :debug)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Workspace Initialization
@@ -300,6 +302,20 @@
              (rx/map (partial bundle-fetched features))
              (rx/take-until stoper))))))
 
+;; FIXME: maybe this should be localized in the workspace.persistence ns????
+
+;; (defn- update-file-revn
+;;   [{:keys [file-id revn]}]
+;;   (ptk/reify ::update-file-revn
+;;     ptk/UpdateEvent
+;;     (update [_ state]
+;;       (log/debug :hint "update-file-revn" :file-id file-id :revn revn)
+;;       (if-let [current-file-id (:current-file-id state)]
+;;         (if (= file-id current-file-id)
+;;           (update-in state [:workspace-file :revn] max revn)
+;;           (d/update-in-when state [:workspace-libraries file-id :revn] max revn))
+;;         state))))
+
 (defn initialize-file
   [project-id file-id]
   (dm/assert! (uuid? project-id))
@@ -315,11 +331,26 @@
              :workspace-presence {}))
 
     ptk/WatchEvent
-    (watch [_ _ _]
-      (rx/of msg/hide
-             (dcm/retrieve-comment-threads file-id)
-             #_(dwp/initialize-file-persistence file-id)
-             (fetch-bundle project-id file-id)))
+    (watch [_ _ stream]
+      (rx/merge
+       (rx/of msg/hide
+              (dcm/retrieve-comment-threads file-id)
+              (fetch-bundle project-id file-id))
+
+       (let [stoper (rx/filter (ptk/type? ::finalize-file) stream)]
+
+         (rx/merge
+          (->> stream
+               (rx/filter (ptk/type? ::dp/commint-persisted))
+               (rx/map deref)
+               (rx/map dwth/update-thumbnails)
+               (rx/take-until stoper))
+          #_(->> stream
+               (rx/filter (ptk/type? ::dp/file-revn-updated))
+               (rx/map deref)
+               (rx/map update-file-revn)
+               (rx/take-until stoper))))))
+
 
     ptk/EffectEvent
     (effect [_ _ _]
@@ -340,7 +371,6 @@
               :workspace-libraries
               :workspace-ready?
               :workspace-media-objects
-              :workspace-persistence
               :workspace-presence
               :workspace-project
               :workspace-project
