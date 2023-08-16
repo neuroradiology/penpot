@@ -6,7 +6,6 @@
 
 (ns app.main.data.workspace.persistence
   (:require
-   [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.logging :as log]
    [app.common.pages :as cp]
@@ -25,199 +24,6 @@
    [potok.core :as ptk]))
 
 (log/set-level! :info)
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(def running
-  (atom false))
-
-(def conj* (fnil conj []))
-
-
-(defn apply-changes-locally
-  [file-id {:keys [revn changes]}]
-  (dm/assert! (uuid? file-id))
-  (dm/assert! (int? revn))
-  (dm/assert! (cpc/valid-changes? changes))
-
-  #_(ptk/reify ::applly-changes-locally
-    ptk/UpdateEvent
-    (update [_ state]
-      ;; NOTE: we don't set the file features context here because
-      ;; there are no useful context for code that need to be executed
-      ;; on the frontend side
-
-      (if-let [current-file-id (:current-file-id state)]
-        (if (= file-id current-file-id)
-          (let [changes (group-by :page-id changes)]
-            (-> state
-                (update-in [:workspace-file :revn] max revn)
-                (update :workspace-data (fn [file]
-                                          (loop [fdata file
-                                                 entries (seq changes)]
-                                            (if-let [[page-id changes] (first entries)]
-                                              (recur (-> fdata
-                                                         (cp/process-changes changes)
-                                                         (ctst/update-object-indices page-id))
-                                                     (rest entries))
-                                              fdata))))))
-          (-> state
-              (d/update-in-when [:workspace-libraries file-id :revn] max revn)
-              (d/update-in-when [:workspace-libraries file-id :data] cp/process-changes changes)))
-
-        state))
-
-    ptk/WatchEvent
-    (watch [_ state stream]
-      (->> (rx/from lagged)
-           (rx/merge-map
-            (fn [{:keys [changes] :as entry}]
-              (rx/merge
-               (rx/from
-                (for [[page-id changes] (group-by :page-id changes)]
-                  (dch/update-indices page-id changes)))
-               (rx/of (shapes-changes-persisted file-id entry)))))))))
-
-
-
-(defn update-thumbnails
-  [file-id changes]
-  (ptk/reify ::update-thumbnails
-    ptk/WatchEvent
-    (watch [_ state _]
-      (let [updates (-> (group-by :page-id changes)
-                        (update-vals #(into #{} (mapcat :frames) %)))]
-
-        (->> (rx/from updates)
-             (rx/mapcat (fn [[page-id frames]]
-                          (->> frames (map #(vector page-id %)))))
-             (rx/map (fn [[page-id frame-id]] (dwt/update-thumbnail file-id page-id frame-id))))))))
-
-(defn persist-commit
-  [commit-id])
-  ;; (ptk/reify ::persist-commit
-  ;;   ptk/WatchEvent
-  ;;   (watch [_ state stream]
-  ;;     (when-let [{:keys [file-id changes]} (dm/get-in state [:workspace-pending :index commit-id])]
-  ;;       (let [;; this features set does not includes the ffeat/enabled
-  ;;             ;; because they are already available on the backend and
-  ;;             ;; this request provides a set of features to enable in
-  ;;             ;; this request.
-  ;;             features (cond-> #{}
-  ;;                        (features/active-feature? state :components-v2)
-  ;;                        (conj "components/v2"))
-  ;;             sid      (:session-id state)
-  ;;             params   {:id file-id
-  ;;                       :revn file-revn
-  ;;                       :session-id sid
-  ;;                       :changes (vec changes)
-  ;;                       :features features}]
-
-  ;;       (->> (rp/cmd! :update-file params)
-  ;;            (rx/mapcat (fn [lagged]
-  ;;                         (log/debug :hint "changes persisted" :lagged (count lagged))
-  ;;                         (rx/concat
-  ;;                          (rx/of (update-thumbnails changes))
-
-  ;;                          (if (seq lagged)
-  ;;                            (rx/of (apply-changes-locally file-id lagged))
-  ;;                            (rx/empty))
-
-
-  ;;                          (rx/merge
-  ;;                           (->> (rx/from (concat lagged commits))
-  ;;                                (rx/merge-map
-  ;;                                 (fn [{:keys [changes] :as entry}]
-  ;;                                   (rx/merge
-  ;;                                    (rx/from
-  ;;                                     (for [[page-id changes] (group-by :page-id changes)]
-  ;;                                       (dch/update-indices page-id changes)))
-  ;;                                    (rx/of (shapes-changes-persisted file-id entry)))))))
-  ;;            (rx/catch (fn [cause]
-  ;;                        (rx/concat
-  ;;                         (if (= :authentication (:type cause))
-  ;;                           (rx/empty)
-  ;;                           (rx/of (rt/assign-exception cause)))
-  ;;                         (rx/throw cause))))))))))
-
-(defn- run-persistence
-  []
-  (ptk/reify ::run-persistence
-    ptk/WatchEvent
-    (watch [_ state stream]
-      (let [{:keys [queue index]} (:workspace-pending state)]
-        (if-let [commit-id (-> queue first :id)]
-          (->> (rx/merge
-                (rx/of (persist-commit commit-id))
-                (->> stream
-                     (rx/filter (ptk/type? ::commit-persisted))
-                     (rx/take 1)
-                     (rx/map run-persistence)))
-
-               (rx/take-until
-                (rx/filter (ptk/type? ::run-persistence) stream)))
-          (do
-            (reset! running false)
-            nil))))))
-
-(defn- append-commit
-  "Event used internally to append the current change to the
-  persistence queue."
-  [{:keys [id] :as commit}]
-  (ptk/reify ::append-commit
-    ptk/UpdateEvent
-    (update [_ state]
-      (update state :workspace-pending
-              (fn [state]
-                (-> state
-                    (update :queue conj* id)
-                    (update :index assoc id commit)))))
-
-    ptk/WatchEvent
-    (watch [_ state stream]
-      (when (compare-and-set! running false true)
-        (rx/of (run-persistence))))))
-
-
-(defn initialize-file-persistence'
-  [file-id]
-  (ptk/reify ::initialize-persistence
-    ptk/WatchEvent
-    (watch [_ _ stream]
-      (log/debug :hint "initialize persistence")
-      (let [stoper   (rx/filter (ptk/type? ::initialize-persistence) stream)
-            commits  (l/atom [])
-            saving?  (l/atom false)
-
-            local-file?
-            #(as-> (:file-id %) event-file-id
-               (or (nil? event-file-id)
-                   (= event-file-id file-id)))]
-
-        (->> stream
-             (rx/filter dch/commit-changes?)
-             (rx/map deref)
-             (rx/filter local-file?)
-             ;; (rx/tap on-dirty)
-             (rx/filter (complement empty?))
-             (rx/map (fn [commit]
-                       (-> commit
-                           (assoc :id (uuid/next))
-                            (assoc :file-id file-id))))
-             (rx/observe-on :async)
-             (rx/map append-commit)
-             (rx/take-until (rx/delay 100 stoper))
-             (rx/finalize (fn []
-                            (log/debug :hint "finalize persistence: changes watcher"))))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (declare persist-changes)
 (declare persist-synchronous-changes)
@@ -461,8 +267,8 @@
                                                      (rest entries))
                                               fdata))))))
           (-> state
-              (d/update-in-when [:workspace-libraries file-id :revn] max revn)
-              (d/update-in-when [:workspace-libraries file-id :data] cp/process-changes changes)))
+              (update-in [:workspace-libraries file-id :revn] max revn)
+              (update-in [:workspace-libraries file-id :data] cp/process-changes changes)))
 
         state))))
 

@@ -318,7 +318,7 @@
     (watch [_ _ _]
       (rx/of msg/hide
              (dcm/retrieve-comment-threads file-id)
-             (dwp/initialize-file-persistence file-id)
+             #_(dwp/initialize-file-persistence file-id)
              (fetch-bundle project-id file-id)))
 
     ptk/EffectEvent

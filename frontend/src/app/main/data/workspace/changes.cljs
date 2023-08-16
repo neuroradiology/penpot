@@ -174,7 +174,7 @@
 
 (defn commit-changes*
   [{:keys [redo-changes undo-changes origin save-undo? affected-frames
-           file-id page-id undo-group tags stack-undo?]}]
+           file-id file-revn page-id undo-group tags stack-undo?]}]
 
   (dm/assert!
    "expect valid vector of changes"
@@ -185,10 +185,9 @@
     cljs.core/IDeref
     (-deref [_]
       {:file-id file-id
+       :file-revn file-revn
        :changes redo-changes
-       :redo-changes redo-changes
        :undo-changes undo-changes
-       :page-id page-id
        :frames affected-frames
        :save-undo? save-undo?
        :undo-group undo-group
@@ -198,16 +197,22 @@
     ptk/UpdateEvent
     (update [_ state]
       (let [current-file-id (get state :current-file-id)
-            file-id         (or file-id current-file-id)
             path            (if (= file-id current-file-id)
                               [:workspace-data]
                               [:workspace-libraries file-id :data])]
 
-        (update-in state path (fn [file]
-                                (-> file
-                                    (cp/process-changes redo-changes false)
-                                    (ctst/update-object-indices page-id))))))))
+        (d/update-in-when state path (fn [file]
+                                       (let [file (cp/process-changes file redo-changes false)
+                                             pids (into #{} (map :page-id) redo-changes)]
+                                         (reduce #(ctst/update-object-indices %1 %2) pids))))))))
 
+
+(defn- resolve-file-revn
+  [state file-id]
+  (let [file (:workspace-file state)]
+    (if (= (:id file) file-id)
+      (:revn file)
+      (dm/get-in state [:workspace-libraries file-id :revn]))))
 
 
 (defn commit-changes
@@ -219,51 +224,50 @@
    - undo-group: if some consecutive changes (or even transactions) share the same
                  undo-group, they will be undone or redone in a single step
    "
-  [{:keys [redo-changes undo-changes origin save-undo?
-           file-id undo-group tags stack-undo?]
+  [{:keys [redo-changes undo-changes origin save-undo? undo-group tags stack-undo? file-id]
     :or {save-undo? true
          stack-undo? false
          undo-group (uuid/next)
          tags #{}}
     :as params}]
+
   (ptk/reify ::commit-changes
     ptk/WatchEvent
     (watch [_ state _]
-      (let [;; adds page-id to page changes (that have the `id` field instead)
-            add-page-id
-            (fn [{:keys [id type page] :as change}]
-              (cond-> change
-                (and (page-change? type) (nil? (:page-id change)))
-                (assoc :page-id (or id (:id page)))))
+      (rx/concat
+       ;; PROCESS CHANGES
+       (let [frames  (changed-frames redo-changes (wsh/lookup-page-objects state))
+             file-id (or file-id (:current-file-id state))]
 
-            changes-by-pages
-            (->> redo-changes
-                 (map add-page-id)
-                 (remove #(nil? (:page-id %)))
-                 (group-by :page-id))
+         (rx/of (-> params
+                    (assoc :undo-group undo-group)
+                    (assoc :tags tags)
+                    (assoc :stack-undo? stack-undo?)
+                    (assoc :save-undo? save-undo?)
+                    (assoc :file-id file-id)
+                    (assoc :file-revn (resolve-file-revn state file-id))
+                    (assoc :affected-frames frames)
+                    (commit-changes*))))
 
-            process-page-changes
-            (fn [[page-id _changes]]
-              (update-indices page-id redo-changes))
+       ;; PROCESS INDEXES
+       (letfn [(add-page-id [{:keys [id type page] :as change}]
+                 (cond-> change
+                   (and (page-change? type) (nil? (:page-id change)))
+                   (assoc :page-id (or id (:id page)))))
 
-            page-id (:current-page-id state)
-            frames  (changed-frames redo-changes (wsh/lookup-page-objects state))]
+               (process-page-changes [[page-id _changes]]
+                 (update-indices page-id redo-changes))]
+         (rx/from
+          (->> redo-changes
+               (map add-page-id)
+               (filter :page-id)
+               (group-by :page-id)
+               (map process-page-changes))))
 
-        (rx/concat
-         (rx/of (commit-changes*
-                 (-> params
-                     (assoc :undo-group undo-group)
-                     (assoc :tags tags)
-                     (assoc :stack-undo? stack-undo?)
-                     (assoc :save-undo? save-undo?)
-                     (assoc :page-id page-id)
-                     (assoc :affected-frames frames))))
-
-         (rx/from (map process-page-changes changes-by-pages))
-
-         (when (and save-undo? (seq undo-changes))
-           (let [entry {:undo-changes undo-changes
-                        :redo-changes redo-changes
-                        :undo-group undo-group
-                        :tags tags}]
-             (rx/of (dwu/append-undo entry stack-undo?)))))))))
+       ;; PROCESS UNDO
+       (when (and save-undo? (seq undo-changes))
+         (let [entry {:undo-changes undo-changes
+                      :redo-changes redo-changes
+                      :undo-group undo-group
+                      :tags tags}]
+           (rx/of (dwu/append-undo entry stack-undo?))))))))

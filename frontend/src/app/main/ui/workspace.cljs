@@ -18,6 +18,7 @@
    [app.main.ui.hooks :as hooks]
    [app.main.ui.hooks.resize :refer [use-resize-observer]]
    [app.main.ui.icons :as i]
+   [app.main.data.persistence :as dp]
    [app.main.ui.workspace.colorpalette :refer [colorpalette]]
    [app.main.ui.workspace.colorpicker]
    [app.main.ui.workspace.context-menu :refer [context-menu]]
@@ -180,6 +181,9 @@
 
         background-color (:background-color wglobal)]
 
+    (mf/with-effect []
+      (st/emit! (dp/initialize-persistence)))
+
     ;; Setting the layout preset by its name
     (mf/with-effect [layout-name]
       (st/emit! (dw/initialize-layout layout-name)))
@@ -191,6 +195,7 @@
     (mf/with-effect [project-id file-id]
       (st/emit! (dw/initialize-file project-id file-id))
       (fn []
+        ;; FIXME
         (st/emit! ::dwp/force-persist
                   (dw/finalize-file project-id file-id))))
 
