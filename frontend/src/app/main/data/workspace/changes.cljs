@@ -21,6 +21,7 @@
    [app.main.data.workspace.undo :as dwu]
    [app.main.store :as st]
    [app.main.worker :as uw]
+   [app.util.time :as dt]
    [beicon.core :as rx]
    [potok.core :as ptk]))
 
@@ -183,6 +184,7 @@
 
   (let [commit-id (or commit-id (uuid/next))
         commit    {:id commit-id
+                   :created-at (dt/now)
                    :origin (ptk/type origin)
                    :file-id file-id
                    :file-revn file-revn

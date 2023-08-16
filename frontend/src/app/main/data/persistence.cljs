@@ -60,6 +60,7 @@
                         :revn revn
                         :session-id sid
                         :origin (:origin commit)
+                        :created-at (:created-at commit)
                         :commit-id commit-id
                         :changes (vec changes)
                         :features features}]
