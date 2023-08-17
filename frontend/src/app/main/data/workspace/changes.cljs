@@ -26,7 +26,7 @@
    [potok.core :as ptk]))
 
 ;; Change this to :info :debug or :trace to debug this module
-(log/set-level! :warn)
+(log/set-level! :debug)
 
 (defonce page-change? #{:add-page :mod-page :del-page :mov-page})
 (defonce update-layout-attr? #{:hidden})
@@ -104,53 +104,74 @@
             (rx/of (ptk/data-event :layout/update update-layout-ids))
             (rx/empty))))))))
 
-(defn send-update-indices
-  []
-  (ptk/reify ::send-update-indices
+;; (defn send-update-indices
+;;   []
+;;   (ptk/reify ::send-update-indices
+;;     ptk/WatchEvent
+;;     (watch [_ _ _]
+;;       (->> (rx/of
+;;             (fn [state]
+;;               (-> state
+;;                   (dissoc ::update-indices-debounce)
+;;                   (dissoc ::update-changes))))
+;;            (rx/observe-on :async)))
+
+;;     ptk/EffectEvent
+;;     (effect [_ state _]
+;;       (doseq [[page-id changes] (::update-changes state)]
+;;         (uw/ask! {:cmd :update-page-index
+;;                   :page-id page-id
+;;                   :changes changes})))))
+
+;; ;; Update indices will debounce operations so we don't have to update
+;; ;; the index several times (which is an expensive operation)
+;; (defn update-indices
+;;   [page-id changes]
+
+;;   (let [start (uuid/next)]
+;;     (ptk/reify ::update-indices
+;;       ptk/UpdateEvent
+;;       (update [_ state]
+;;         (if (nil? (::update-indices-debounce state))
+;;           (assoc state ::update-indices-debounce start)
+;;           (update-in state [::update-changes page-id] (fnil d/concat-vec []) changes)))
+
+;;       ptk/WatchEvent
+;;       (watch [_ state stream]
+;;         (if (= (::update-indices-debounce state) start)
+;;           (let [stopper (->> stream (rx/filter (ptk/type? :app.main.data.workspace/finalize)))]
+;;             (rx/merge
+;;              (->> stream
+;;                   (rx/filter (ptk/type? ::update-indices))
+;;                   (rx/debounce 50)
+;;                   (rx/take 1)
+;;                   (rx/map #(send-update-indices))
+;;                   (rx/take-until stopper))
+;;              (rx/of (update-indices page-id changes))))
+;;           (rx/empty))))))
+
+(defn update-indexes
+  [{:keys [changes] :as commit}]
+  (ptk/reify ::update-indexes
     ptk/WatchEvent
     (watch [_ _ _]
-      (->> (rx/of
-            (fn [state]
-              (-> state
-                  (dissoc ::update-indices-debounce)
-                  (dissoc ::update-changes))))
-           (rx/observe-on :async)))
+      (let [changes (->> changes
+                         (map (fn [{:keys [id type page] :as change}]
+                                (cond-> change
+                                  (and (page-change? type) (nil? (:page-id change)))
+                                  (assoc :page-id (or id (:id page))))))
+                         (filter :page-id)
+                         (group-by :page-id))]
 
-    ptk/EffectEvent
-    (effect [_ state _]
-      (doseq [[page-id changes] (::update-changes state)]
-        (uw/ask! {:cmd :update-page-index
-                  :page-id page-id
-                  :changes changes})))))
+        (->> (rx/from changes)
+             (rx/merge-map (fn [[page-id changes]]
+                             (log/debug :hint "update-indexes" :page-id page-id :changes (count changes))
+                             (uw/ask! {:cmd :update-page-index
+                                       :page-id page-id
+                                       :changes changes})))
+             (rx/ignore))))))
 
-;; Update indices will debounce operations so we don't have to update
-;; the index several times (which is an expensive operation)
-(defn update-indices
-  [page-id changes]
-
-  (let [start (uuid/next)]
-    (ptk/reify ::update-indices
-      ptk/UpdateEvent
-      (update [_ state]
-        (if (nil? (::update-indices-debounce state))
-          (assoc state ::update-indices-debounce start)
-          (update-in state [::update-changes page-id] (fnil d/concat-vec []) changes)))
-
-      ptk/WatchEvent
-      (watch [_ state stream]
-        (if (= (::update-indices-debounce state) start)
-          (let [stopper (->> stream (rx/filter (ptk/type? :app.main.data.workspace/finalize)))]
-            (rx/merge
-             (->> stream
-                  (rx/filter (ptk/type? ::update-indices))
-                  (rx/debounce 50)
-                  (rx/take 1)
-                  (rx/map #(send-update-indices))
-                  (rx/take-until stopper))
-             (rx/of (update-indices page-id changes))))
-          (rx/empty))))))
-
-(defn changed-frames
+(defn- changed-frames
   "Extracts the frame-ids changed in the given changes"
   [changes objects]
 
@@ -254,23 +275,6 @@
                     (assoc :file-revn (resolve-file-revn state file-id))
                     (assoc :affected-frames frames)
                     (commit-changes*))))
-
-
-       ;; FIXME: move down to the commit changes reactivity?????
-       ;; PROCESS INDEXES
-       (letfn [(add-page-id [{:keys [id type page] :as change}]
-                 (cond-> change
-                   (and (page-change? type) (nil? (:page-id change)))
-                   (assoc :page-id (or id (:id page)))))
-
-               (process-page-changes [[page-id _changes]]
-                 (update-indices page-id redo-changes))]
-         (rx/from
-          (->> redo-changes
-               (map add-page-id)
-               (filter :page-id)
-               (group-by :page-id)
-               (map process-page-changes))))
 
        ;; PROCESS UNDO
        (when (and save-undo? (seq undo-changes))
