@@ -121,6 +121,7 @@
 (defn- svg-resolve-styles!
   "Resolves all fonts in an SVG to Data URIs."
   [svg styles]
+  (js/console.log "styles" styles)
   (->> (rx/from (re-seq #"url\((https?://[^)]+)\)" styles))
        (rx/map second)
        (rx/mapcat (fn [url]

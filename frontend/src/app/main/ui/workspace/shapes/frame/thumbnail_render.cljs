@@ -16,6 +16,7 @@
    [app.main.store :as st]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.shapes.frame :as frame]
+   [app.main.thumbnail-renderer :as thr]
    [app.util.dom :as dom]
    [app.util.thumbnails :as th]
    [app.util.timers :as ts]
@@ -39,6 +40,7 @@
     [value]))
 
 (defn- create-svg-blob-uri-from
+  "Returns a stream of Blob URIs"
   [rect node style-node]
   (let [{:keys [x y width height]} rect
         viewbox (dm/str x " " y " " width " " height)
@@ -56,13 +58,17 @@
                 fixed-width
                 fixed-height
                 (if (some? style-node) (dom/node->xml style-node) "")
-                (dom/node->xml node))
+                (dom/node->xml node))]
 
-        ;; create SVG blob
-        blob (wapi/create-blob svg-data "image/svg+xml;charset=utf-8")
-        url  (dm/str (wapi/create-uri blob) "#svg")]
-    ;; returns the url and the node
-    url))
+    ;; renders thumbnail using `thumbnail-renderer`
+    ;; instead of custom renderer.
+    (->> (rx/of {:data svg-data
+                 :styles ""
+                 :width fixed-width})
+         (rx/mapcat thr/render)
+         (rx/map (fn [blob]
+                      (js/console.log blob)
+                      (wapi/create-uri blob))))))
 
 (defn use-render-thumbnail
   "Hook that will create the thumbnail data"
@@ -142,10 +148,12 @@
                (if (dom/has-children? node)
                  ;; The frame-content need to have children in order to generate the thumbnail
                  (let [style-node (dom/query (dm/str "#frame-container-" id " style"))
-                       bounds     (mf/ref-val bounds-ref)
-                       url        (create-svg-blob-uri-from bounds node style-node)]
+                       bounds     (mf/ref-val bounds-ref)]
 
-                   (reset! svg-uri* url))
+                   (->> (create-svg-blob-uri-from bounds node style-node)
+                        (rx/subs (fn [url]
+                                   (js/console.log url)
+                                   (reset! svg-uri* url)))))
 
                  ;; Node not yet ready, we schedule a new generation
                  (ts/raf generate-thumbnail)))
