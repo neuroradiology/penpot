@@ -14,9 +14,9 @@
    [app.main.data.workspace.thumbnails :as dwt]
    [app.main.refs :as refs]
    [app.main.store :as st]
+   [app.main.thumbnail-renderer :as thr]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.shapes.frame :as frame]
-   [app.main.thumbnail-renderer :as thr]
    [app.util.dom :as dom]
    [app.util.thumbnails :as th]
    [app.util.timers :as ts]
@@ -61,14 +61,12 @@
                 (dom/node->xml node))]
 
     ;; renders thumbnail using `thumbnail-renderer`
-    ;; instead of custom renderer.
+    ;; instead of local renderer.
     (->> (rx/of {:data svg-data
                  :styles ""
                  :width fixed-width})
          (rx/mapcat thr/render)
-         (rx/map (fn [blob]
-                      (js/console.log blob)
-                      (wapi/create-uri blob))))))
+         (rx/map (fn [blob] (wapi/create-uri blob))))))
 
 (defn use-render-thumbnail
   "Hook that will create the thumbnail data"

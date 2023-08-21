@@ -14,6 +14,7 @@
    [app.main.data.workspace.undo :as dwu]
    [app.main.refs :as refs]
    [app.main.store :as st]
+   [app.main.thumbnail-renderer :as thr]
    [app.main.ui.css-cursors :as cur]
    [app.main.ui.workspace.shapes :as shapes]
    [app.util.dom :as dom]
@@ -166,9 +167,10 @@
          (fn []
            (let [img-node (mf/ref-val img-ref)
                  svg-node (dom/get-element "render")]
-             (->> (svg-as-data-url svg-node)
-                  (rx/subs (fn [uri]
-                             (obj/set! img-node "src" uri)))))))
+             (->> (rx/of {:node svg-node :styles ""})
+                  (rx/mapcat thr/render-node)
+                  (rx/map (fn [blob] (wapi/create-uri blob)))
+                  (rx/subs (fn [uri] (obj/set! img-node "src" uri)))))))
 
         handle-svg-change
         (mf/use-callback

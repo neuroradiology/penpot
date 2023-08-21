@@ -81,6 +81,13 @@
                         "failure" (rx/throw (js/Error. (unchecked-get msg "payload"))))))
          (rx/take 1))))
 
+(defn render-node
+  [{:keys [node styles width] :as params}]
+  (let [data (dom/node->xml node)]
+    (render {:data data
+             :styles styles
+             :width (or width (.-clientWidth node))})))
+
 (defn init!
   "Initializes the thumbnail renderer."
   []
