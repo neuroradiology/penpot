@@ -10,6 +10,8 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.types.components-list :as ctkl]
+   [app.common.types.colors-list :as ctcl]
+   [app.common.types.typographies-list :as ctyl]
    [app.main.data.modal :as modal]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.features :as features]
@@ -390,8 +392,39 @@
 (mf/defc updates-tab
   {::mf/wrap-props false}
   [{:keys [file-id file-data libraries]}]
-  (let [libraries      (mf/with-memo [file-data libraries]
-                         (filter #(seq (dwl/assets-need-sync % file-data)) (vals libraries)))
+  (let [extract-assets
+        (fn [library]
+          (let [assets (dwl/assets-need-sync library file-data)
+
+                component-ids  (into #{} (->> assets
+                                              (filter #(= (:asset-type %) :component))
+                                              (map :asset-id)))
+                color-ids      (into #{} (->> assets
+                                              (filter #(= (:asset-type %) :color))
+                                              (map :asset-id)))
+                typography-ids (into #{} (->> assets
+                                              (filter #(= (:asset-type %) :typography))
+                                              (map :asset-id)))
+
+                components   (->> component-ids
+                                  (map #(ctkl/get-component (:data library) %))
+                                  (sort-by #(str/lower (:name %))))
+                colors       (->> color-ids
+                                  (map #(ctcl/get-color (:data library) %))
+                                  (sort-by #(str/lower (:name %))))
+                typographies (->> typography-ids
+                                  (map #(ctyl/get-typography (:data library) %))
+                                  (sort-by #(str/lower (:name %))))]
+
+            (js/console.log "components" (clj->js components))
+            (js/console.log "colors" (clj->js colors))
+            (js/console.log "typographies" (clj->js typographies))
+            [library {:components components
+                      :colors colors
+                      :typographies typographies}]))
+
+        libs-assets    (mf/with-memo [file-data libraries]
+                         (map extract-assets (vals libraries)))
         new-css-system (mf/use-ctx ctx/new-css-system)
 
         update         (mf/use-fn
@@ -403,14 +436,15 @@
                             (st/emit! (dwl/sync-file file-id library-id)))))]
     (if new-css-system
       [:div {:class (css :section)}
-       (if (empty? libraries)
+       (if (empty? libs-assets)
          [:div {:class (css :section-list-empty)}
           (tr "workspace.libraries.no-libraries-need-sync")]
          [:*
-          [:div {:class (css :section-title)} (tr "workspace.libraries.library")]
+          [:div {:class (css :section-title)} (tr "workspace.libraries.library-updates")]
 
           [:div {:class (css :section-list)}
-           (for [{:keys [id name] :as library} libraries]
+           (for [[{:keys [id name] :as library}
+                  {:keys [components colors typographies]}] libs-assets]
              [:div {:class (css :section-list-item)
                     :key (dm/str id)}
               [:div
@@ -423,18 +457,23 @@
                        :on-click update}]])]])]
 
       [:div.section
-       (if (empty? libraries)
+       (if (empty? libs-assets)
          [:div.section-list-empty
           i/library
           (tr "workspace.libraries.no-libraries-need-sync")]
          [:*
-          [:div.section-title (tr "workspace.libraries.library")]
+          [:div.section-title (tr "workspace.libraries.library-updates")]
 
           [:div.section-list
-           (for [{:keys [id name] :as library} libraries]
+           (for [[{:keys [id name] :as library}
+                  {:keys [components colors typographies]}] libs-assets]
              [:div.section-list-item {:key (dm/str id)}
               [:div.item-name name]
-              [:div.item-contents (describe-external-library library)]
+              [:div.item-contents (describe-library
+                                   (count components)
+                                   0
+                                   (count colors)
+                                   (count typographies))]
               [:input.item-button {:type "button"
                                    :value (tr "workspace.libraries.update")
                                    :data-library-id (dm/str id)

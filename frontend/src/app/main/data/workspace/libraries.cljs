@@ -821,9 +821,7 @@
 (defn assets-need-sync
   "Get a lazy sequence of all the assets of each type in the library that have
   been modified after the last sync of the library. The sync date may be
-  overriden by providing a ignore-until parameter.
-
-  The sequence items are tuples of (page-id shape-id asset-id asset-type)."
+  overriden by providing a ignore-until parameter."
   ([library file-data] (assets-need-sync library file-data nil))
   ([library file-data ignore-until]
    (let [sync-date (max (:synced-at library) (or ignore-until 0))]

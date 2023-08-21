@@ -8,7 +8,8 @@
   (:require
    [app.common.data :as d]
    [app.common.time :as dt]
-   [app.common.types.color :as ctc]))
+   [app.common.types.color :as ctc]
+   [cljs.core :as c]))
 
 (defn colors-seq
   [file-data]
@@ -51,4 +52,6 @@
   (->> (ctc/get-all-colors shape)
        (keep #(get-ref-color (:data library) %))
        (remove #(< (:modified-at %) since-date))  ;; Note that :modified-at may be nil
-       (map #(vector (:id shape) (:id %) :color))))
+       (map (fn [color] {:shape-id (:id shape)
+                         :asset-id (:id color)
+                         :asset-type :color}))))

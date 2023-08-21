@@ -3352,6 +3352,10 @@ msgid "workspace.libraries.library"
 msgstr "LIBRARY"
 
 #: src/app/main/ui/workspace/libraries.cljs
+msgid "workspace.libraries.library-updates"
+msgstr "LIBRARY UPDATES"
+
+#: src/app/main/ui/workspace/libraries.cljs
 msgid "workspace.libraries.no-libraries-need-sync"
 msgstr "There are no Shared Libraries that need update"
 

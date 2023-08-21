@@ -3441,6 +3441,10 @@ msgid "workspace.libraries.library"
 msgstr "BIBLIOTECA"
 
 #: src/app/main/ui/workspace/libraries.cljs
+msgid "workspace.libraries.library-updates"
+msgstr "ACTUALIZACIONES DE BIBLIOTECAS"
+
+#: src/app/main/ui/workspace/libraries.cljs
 msgid "workspace.libraries.no-libraries-need-sync"
 msgstr "No hay bibliotecas que necesiten ser actualizadas"
 

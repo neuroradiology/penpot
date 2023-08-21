@@ -324,14 +324,15 @@
    been modified after the given date."
   [file-data library since-date]
   (letfn [(used-assets-shape [shape]
-             (concat
-              (ctkl/used-components-changed-since shape library since-date)
-              (ctcl/used-colors-changed-since shape library since-date)
-              (ctyl/used-typographies-changed-since shape library since-date)))
+            (concat
+             (ctkl/used-components-changed-since shape library since-date)
+             (ctcl/used-colors-changed-since shape library since-date)
+             (ctyl/used-typographies-changed-since shape library since-date)))
 
           (used-assets-container [container]
-           (->> (mapcat used-assets-shape (ctn/shapes-seq container))
-                (map #(cons (:id container) %))))]
+            (->> (ctn/shapes-seq container)
+                 (mapcat used-assets-shape)
+                 (map #(assoc % :container-id (:id container)))))]
 
     (mapcat used-assets-container (containers-seq file-data))))
 
