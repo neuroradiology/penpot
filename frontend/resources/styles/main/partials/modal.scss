@@ -791,6 +791,56 @@
         }
       }
     }
+
+    .libraries-updates {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      grid-gap: $size-5;
+      font-size: $fs12;
+      margin-top: $size-4;
+
+      .libraries-updates-item {
+        display: flex;
+        align-items: center;
+
+        &:not(:first-child) {
+          margin-top: $size-2;
+        }
+ 
+        & svg {
+          background-color: $color-canvas;
+          border-radius: $br4;
+          border: 2px solid transparent;
+          height: 24px;
+          width: 24px;
+          min-height: 24px;
+          min-width: 24px;
+          margin-right: $size-2;
+        }
+
+        & .color-bullet {
+          margin-right: $size-2;
+        }
+
+        & .typography-sample {
+          margin-right: $size-2;
+        }
+
+        & .name-block {
+          color: $color-gray-20;
+          width: calc(100% - 24px - #{$size-2});
+        }
+
+        & .item-name {
+          display: block;
+          margin: 0;
+          text-overflow: ellipsis;
+          overflow: hidden;
+          white-space: nowrap;
+        }
+
+      }
+    }
   }
 }
 

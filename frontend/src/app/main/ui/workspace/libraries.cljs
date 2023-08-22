@@ -9,19 +9,23 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.types.components-list :as ctkl]
    [app.common.types.colors-list :as ctcl]
+   [app.common.types.components-list :as ctkl]
+   [app.common.types.file :as ctf]
    [app.common.types.typographies-list :as ctyl]
    [app.main.data.modal :as modal]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.features :as features]
    [app.main.refs :as refs]
+   [app.main.render :refer [component-svg]]
    [app.main.store :as st]
+   [app.main.ui.components.color-bullet :as bc]
    [app.main.ui.components.search-bar :refer [search-bar]]
    [app.main.ui.components.tab-container :refer [tab-container tab-element]]
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
    [app.main.ui.icons :as i]
+   [app.util.color :as uc]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
@@ -477,7 +481,49 @@
               [:input.item-button {:type "button"
                                    :value (tr "workspace.libraries.update")
                                    :data-library-id (dm/str id)
-                                   :on-click update}]])]])])))
+                                   :on-click update}]
+              [:div.libraries-updates
+               (when-not (empty? components)
+                 [:div.libraries-updates-column
+                  (for [component components]
+                    [:div.libraries-updates-item {:key (dm/str (:id component))}
+                     (let [component (ctf/load-component-objects (:data library) component)
+                           root-shape (ctf/get-component-root (:data library) component)]
+                       [:*
+                        [:& component-svg {:root-shape root-shape
+                                           :objects (:objects component)}]
+                        [:div.name-block
+                         [:span.item-name {:title (:name component)}
+                          (:name component)]]])])])
+               (when-not (empty? colors)
+                 [:div.libraries-updates-column {:style #js {"--bullet-size" "24px"}}
+                  (for [color colors]
+                    (let [default-name (cond
+                                         (:gradient color) (uc/gradient-type->string (get-in color [:gradient :type]))
+                                         (:color color) (:color color)
+                                         :else (:value color))]
+                      [:div.libraries-updates-item {:key (dm/str (:id color))}
+                       [:*
+                        [:& bc/color-bullet {:color {:color (:color color)
+                                                     :opacity (:opacity color)}}]
+                        [:div.name-block
+                         [:span.item-name {:title (:name color)}
+                          (:name color)]
+                         (when-not (= (:name color) default-name)
+                           [:span.color-value (:color color)])]]]))])
+               (when-not (empty? typographies)
+                 [:div.libraries-updates-column
+                  (for [typography typographies]
+                    [:div.libraries-updates-item {:key (dm/str (:id typography))}
+                     [:*
+                      [:div.typography-sample
+                       {:style {:font-family (:font-family typography)
+                                :font-weight (:font-weight typography)
+                                :font-style (:font-style typography)}}
+                       (tr "workspace.assets.typography.sample")]
+                      [:div.name-block
+                       [:span.item-name {:title (:name typography)}
+                        (:name typography)]]]])])]])]])])))
 
 (mf/defc libraries-dialog
   {::mf/register modal/components

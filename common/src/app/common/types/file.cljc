@@ -223,7 +223,7 @@
   "Add an :objects property to the component, with only the shapes that belong to it"
   [file-data component]
   (let [components-v2 (dm/get-in file-data [:options :components-v2])]
-    (if (and components-v2 component (nil? (:objects component))) ;; This operation may be called twice, e.g. in an idempotent change
+    (if (and components-v2 component (empty? (:objects component))) ;; This operation may be called twice, e.g. in an idempotent change
       (let [component-page (get-component-page file-data component)
             page-objects   (:objects component-page)
             objects        (->> (cons (:main-instance-id component)
