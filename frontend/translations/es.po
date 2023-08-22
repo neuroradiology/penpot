@@ -4907,6 +4907,10 @@ msgid "workspace.undo.title"
 msgstr "Histórico"
 
 #: src/app/main/data/workspace/libraries.cljs
+msgid "workspace.updates.more-info"
+msgstr "Más información"
+
+#: src/app/main/data/workspace/libraries.cljs
 msgid "workspace.updates.dismiss"
 msgstr "Ignorar"
 

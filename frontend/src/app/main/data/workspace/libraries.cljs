@@ -24,6 +24,7 @@
    [app.common.uuid :as uuid]
    [app.main.data.events :as ev]
    [app.main.data.messages :as msg]
+   [app.main.data.modal :as modal]
    [app.main.data.workspace :as-alias dw]
    [app.main.data.workspace.changes :as dch]
    [app.main.data.workspace.groups :as dwg]
@@ -838,6 +839,8 @@
             ignore-until (dm/get-in state [:workspace-file :ignore-sync-until])
             libraries-need-sync (filter #(seq (assets-need-sync % file-data ignore-until))
                                         (vals (get state :workspace-libraries)))
+            do-more-info #(do (modal/show! :libraries-dialog {:starting-tab :updates})
+                              (st/emit! msg/hide))
             do-update #(do (apply st/emit! (map (fn [library]
                                                   (sync-file (:current-file-id state)
                                                              (:id library)))
@@ -848,13 +851,15 @@
 
         (when (seq libraries-need-sync)
           (rx/of (msg/info-dialog
-                  (tr "workspace.updates.there-are-updates")
-                  :inline-actions
-                  [{:label (tr "workspace.updates.update")
-                    :callback do-update}
-                   {:label (tr "workspace.updates.dismiss")
-                    :callback do-dismiss}]
-                  :sync-dialog)))))))
+                  :content (tr "workspace.updates.there-are-updates")
+                  :controls :inline-actions
+                  :links   [{:label (tr "workspace.updates.more-info")
+                             :callback do-more-info}]
+                  :actions [{:label (tr "workspace.updates.update")
+                             :callback do-update}
+                            {:label (tr "workspace.updates.dismiss")
+                             :callback do-dismiss}]
+                  :tag :sync-dialog)))))))
 
 (defn watch-component-changes
   "Watch the state for changes that affect to any main instance. If a change is detected will throw

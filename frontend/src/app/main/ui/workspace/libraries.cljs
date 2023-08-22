@@ -528,8 +528,8 @@
 (mf/defc libraries-dialog
   {::mf/register modal/components
    ::mf/register-as :libraries-dialog}
-  []
-  (let [new-css-system (features/use-feature :new-css-system)
+  [{:keys [starting-tab] :as props :or {starting-tab :libraries}}]
+   (let [new-css-system (features/use-feature :new-css-system)
         project        (mf/deref refs/workspace-project)
         file-data      (mf/deref refs/workspace-data)
         file           (mf/deref ref:workspace-file)
@@ -538,7 +538,7 @@
         file-id        (:id file)
         shared?        (:is-shared file)
 
-        selected-tab*  (mf/use-state :libraries)
+        selected-tab*  (mf/use-state starting-tab)
         selected-tab   (deref selected-tab*)
 
         libraries      (mf/deref refs/workspace-libraries)
