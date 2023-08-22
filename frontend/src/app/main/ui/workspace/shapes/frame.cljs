@@ -8,6 +8,8 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.common.geom.rect :as grc]
+   [app.common.geom.shapes :as gsh]
    [app.common.pages.helpers :as cph]
    [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.workspace.thumbnails :as dwt]
@@ -23,6 +25,7 @@
    [app.main.ui.workspace.shapes.frame.node-store :as fns]
    [app.main.ui.workspace.shapes.frame.thumbnail-render :as ftr]
    [beicon.core :as rx]
+   [debug :refer [debug?]]
    [rumext.v2 :as mf]))
 
 (defn frame-shape-factory
@@ -68,7 +71,61 @@
         (let [shape (unchecked-get props "shape")]
           [:& frame-shape {:shape shape :ref node-ref}])))))
 
+;; TODO: Lanza un internal error y todavía no tengo muy claro por qué.
 (defn root-frame-wrapper-factory
+  [shape-wrapper]
+
+  (let [frame-shape (frame-shape-factory shape-wrapper)]
+    (mf/fnc frame-wrapper
+            {::mf/wrap [#(mf/memo' % check-props)]
+             ::mf/wrap-props false}
+            [props]
+
+            (let [shape              (unchecked-get props "shape")
+                  thumbnail?         (unchecked-get props "thumbnail?")
+                  frame-id           (:id shape)
+
+                  objects            (wsh/lookup-page-objects @st/state)
+
+                  fonts              (mf/with-memo [shape objects]
+                                       (ff/shape->fonts shape objects))
+                  fonts              (hooks/use-equal-memo fonts)
+
+                  debug?            (debug? :thumbnails)
+
+                  all-children-ref (mf/with-memo [frame-id]
+                                     (refs/all-children-objects frame-id))
+                  all-children     (mf/deref all-children-ref)
+
+                  bounds
+                  (if (:show-content shape)
+                    (gsh/shapes->rect (cons shape all-children))
+                    (-> shape :points grc/points->rect))
+
+                  x                 (dm/get-prop bounds :x)
+                  y                 (dm/get-prop bounds :y)
+                  width             (dm/get-prop bounds :width)
+                  height            (dm/get-prop bounds :height)]
+
+              [:& shape-container {:shape shape}
+               [:g.frame-container
+                {:id (dm/str "frame-container-" frame-id)
+                 :key "frame-container"
+                 :opacity (when (:hidden shape) 0)}
+                [:& ff/fontfaces-style {:fonts fonts}]
+                [:g.frame-thumbnail-wrapper
+                 {:id (dm/str "thumbnail-container-" frame-id)
+                  ;; Hide the thumbnail when not displaying
+                  :opacity (when-not thumbnail? 0)}
+                 :image.thumbnail {:x x
+                                   :y y
+                                   :width width
+                                   :height height
+                                   :href thumbnail?
+                                   :style {:filter (when ^boolean debug? "sepia(1)")}
+                 }]]]))))
+
+(defn root-frame-wrapper-factory-legacy
   [shape-wrapper]
 
   (let [frame-shape (frame-shape-factory shape-wrapper)]

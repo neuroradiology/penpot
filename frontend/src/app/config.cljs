@@ -113,7 +113,7 @@
   (normalize-uri (or (obj/get global "penpotPublicURI")
                      (obj/get location "origin"))))
 
-(def thumbnail-renderer-uri
+(def rasterizer-uri
   (or (some-> (obj/get global "penpotThumbnailRendererURI") normalize-uri)
       public-uri))
 

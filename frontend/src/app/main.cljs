@@ -16,7 +16,7 @@
    [app.main.errors]
    [app.main.features :as feat]
    [app.main.store :as st]
-   [app.main.thumbnail-renderer :as tr]
+   [app.main.rasterizer :as tr]
    [app.main.ui :as ui]
    [app.main.ui.alert]
    [app.main.ui.confirm]

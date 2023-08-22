@@ -12,9 +12,9 @@
    [app.common.geom.shapes :as gsh]
    [app.config :as cf]
    [app.main.data.workspace.thumbnails :as dwt]
+   [app.main.rasterizer :as thr]
    [app.main.refs :as refs]
    [app.main.store :as st]
-   [app.main.thumbnail-renderer :as thr]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.shapes.frame :as frame]
    [app.util.dom :as dom]
@@ -60,7 +60,7 @@
                 (if (some? style-node) (dom/node->xml style-node) "")
                 (dom/node->xml node))]
 
-    ;; renders thumbnail using `thumbnail-renderer`
+    ;; renders thumbnail using `rasterizer`
     ;; instead of local renderer.
     (->> (rx/of {:data svg-data
                  :styles ""
