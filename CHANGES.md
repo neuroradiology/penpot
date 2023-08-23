@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 1.19.2
+
+### :bug: Bugs fixed
+
+- Fix unexpected output on get-page rpc methhod when invalid object-id is provided
+  [Github #3546](https://github.com/penpot/penpot/issues/3546)
+
+
 ## 1.19.1
 
 ### :bug: Bugs fixed
