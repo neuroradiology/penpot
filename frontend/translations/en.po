@@ -3395,6 +3395,10 @@ msgstr "Update"
 msgid "workspace.libraries.updates"
 msgstr "UPDATES"
 
+#: src/app/main/data/workspace/libraries.cljs
+msgid "workspace.libraries.update.see-all-changes"
+msgstr "see all changes"
+
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs
 msgid "workspace.options.add-interaction"
 msgstr "Click the + button to add interactions."

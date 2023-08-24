@@ -13,6 +13,7 @@
    [app.common.types.components-list :as ctkl]
    [app.common.types.file :as ctf]
    [app.common.types.typographies-list :as ctyl]
+   [app.common.uuid :as uuid]
    [app.main.data.modal :as modal]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.features :as features]
@@ -396,9 +397,29 @@
 (mf/defc updates-tab
   {::mf/wrap-props false}
   [{:keys [file-id file-data libraries]}]
-  (let [extract-assets
+  (let [summary?*  (mf/use-state true)
+        updating?* (mf/use-state false)
+        summary?   (deref summary?*)
+        updating?  (deref updating?*)
+
+        see-all-assets
+        (fn []
+          (reset! summary?* false))
+
+        extract-assets
         (fn [library]
-          (let [assets (dwl/assets-need-sync library file-data)
+          (let [exceeded (volatile! {:components false
+                                     :colors false
+                                     :typographies false})
+
+                truncate (fn [asset-type items]
+                           (if (and summary? (> (count items) 5))
+                             (do
+                               (vswap! exceeded assoc asset-type true)
+                               (take 5 items))
+                             items))
+
+                assets (dwl/assets-need-sync library file-data)
 
                 component-ids  (into #{} (->> assets
                                               (filter #(= (:asset-type %) :component))
@@ -412,23 +433,29 @@
 
                 components   (->> component-ids
                                   (map #(ctkl/get-component (:data library) %))
-                                  (sort-by #(str/lower (:name %))))
+                                  (sort-by #(str/lower (:name %)))
+                                  (truncate :components))
                 colors       (->> color-ids
                                   (map #(ctcl/get-color (:data library) %))
-                                  (sort-by #(str/lower (:name %))))
+                                  (sort-by #(str/lower (:name %)))
+                                  (truncate :colors))
                 typographies (->> typography-ids
                                   (map #(ctyl/get-typography (:data library) %))
-                                  (sort-by #(str/lower (:name %))))]
+                                  (sort-by #(str/lower (:name %)))
+                                  (truncate :typographies))]
 
-            (js/console.log "components" (clj->js components))
-            (js/console.log "colors" (clj->js colors))
-            (js/console.log "typographies" (clj->js typographies))
-            [library {:components components
-                      :colors colors
-                      :typographies typographies}]))
+            [library @exceeded {:components components
+                                :colors colors
+                                :typographies typographies}]))
 
-        libs-assets    (mf/with-memo [file-data libraries]
-                         (map extract-assets (vals libraries)))
+        libs-assets (mf/with-memo [file-data libraries summary?*]
+                      (->> (vals libraries)
+                           (map extract-assets)
+                           (filter (fn [[_ _ {:keys [components colors typographies]}]]
+                                     (or (seq components)
+                                         (seq colors)
+                                         (seq typographies))))))
+
         new-css-system (mf/use-ctx ctx/new-css-system)
 
         update         (mf/use-fn
@@ -437,7 +464,9 @@
                           (let [library-id (some-> (dom/get-target event)
                                                    (dom/get-data "library-id")
                                                    (parse-uuid))]
+                            (reset! updating?* true)
                             (st/emit! (dwl/sync-file file-id library-id)))))]
+
     (if new-css-system
       [:div {:class (css :section)}
        (if (empty? libs-assets)
@@ -448,17 +477,18 @@
 
           [:div {:class (css :section-list)}
            (for [[{:keys [id name] :as library}
+                  exceeded
                   {:keys [components colors typographies]}] libs-assets]
              [:div {:class (css :section-list-item)
                     :key (dm/str id)}
               [:div
                [:div {:class (css :item-name)} name]
                [:div {:class (css :item-contents)} (describe-external-library library)]]
-              [:input {:class (css :item-update)
-                       :type "button"
-                       :value (tr "workspace.libraries.update")
-                       :data-library-id (dm/str id)
-                       :on-click update}]])]])]
+              [:input.btn-warning {:class (css :item-update)
+                                   :type "button"
+                                   :value (tr "workspace.libraries.update")
+                                   :data-library-id (dm/str id)
+                                   :on-click update}]])]])]
 
       [:div.section
        (if (empty? libs-assets)
@@ -470,6 +500,7 @@
 
           [:div.section-list
            (for [[{:keys [id name] :as library}
+                  exceeded
                   {:keys [components colors typographies]}] libs-assets]
              [:div.section-list-item {:key (dm/str id)}
               [:div.item-name name]
@@ -479,9 +510,12 @@
                                    (count colors)
                                    (count typographies))]
               [:input.item-button {:type "button"
+                                   :class (dom/classnames :btn-gray updating?
+                                                          :btn-warning (not updating?))
                                    :value (tr "workspace.libraries.update")
                                    :data-library-id (dm/str id)
                                    :on-click update}]
+
               [:div.libraries-updates
                (when-not (empty? components)
                  [:div.libraries-updates-column
@@ -494,7 +528,12 @@
                                            :objects (:objects component)}]
                         [:div.name-block
                          [:span.item-name {:title (:name component)}
-                          (:name component)]]])])])
+                          (:name component)]]])])
+                  (when (:components exceeded)
+                    [:div.libraries-updates-item {:key (uuid/next)}
+                     [:div.name-block.ellipsis
+                      [:span.item-name "(...)"]]])])
+
                (when-not (empty? colors)
                  [:div.libraries-updates-column {:style #js {"--bullet-size" "24px"}}
                   (for [color colors]
@@ -510,7 +549,12 @@
                          [:span.item-name {:title (:name color)}
                           (:name color)]
                          (when-not (= (:name color) default-name)
-                           [:span.color-value (:color color)])]]]))])
+                           [:span.color-value (:color color)])]]]))
+                  (when (:colors exceeded)
+                    [:div.libraries-updates-item {:key (uuid/next)}
+                     [:div.name-block.ellipsis
+                      [:span.item-name "(...)"]]])])
+
                (when-not (empty? typographies)
                  [:div.libraries-updates-column
                   (for [typography typographies]
@@ -523,7 +567,17 @@
                        (tr "workspace.assets.typography.sample")]
                       [:div.name-block
                        [:span.item-name {:title (:name typography)}
-                        (:name typography)]]]])])]])]])])))
+                        (:name typography)]]]])
+                  (when (:typographies exceeded)
+                    [:div.libraries-updates-item {:key (uuid/next)}
+                     [:div.name-block.ellipsis
+                      [:span.item-name "(...)"]]])])]
+
+              (when (or (pos? (:components exceeded))
+                        (pos? (:colors exceeded))
+                        (pos? (:typographies exceeded)))
+                [:div.libraries-updates-see-all {:on-click see-all-assets}
+                 "(" (tr "workspace.libraries.update.see-all-changes") ")"])])]])])))
 
 (mf/defc libraries-dialog
   {::mf/register modal/components

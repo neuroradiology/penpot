@@ -723,6 +723,22 @@
             color: $color-primary;
             background: $color-black;
           }
+
+          &.btn-gray {
+            background: $color-gray-10;
+            border-color: $color-gray-10;
+            color: $color-black;
+            cursor: unset;
+
+            &:hover {
+              color: $color-black;
+            }
+          }
+ 
+          &.btn-warning {
+            background: $color-warning;
+            border-color: $color-warning;
+          }
         }
       }
     }
@@ -829,6 +845,10 @@
         & .name-block {
           color: $color-gray-20;
           width: calc(100% - 24px - #{$size-2});
+
+          &.ellipsis {
+            padding-left: calc(24px + #{$size-2});
+          }
         }
 
         & .item-name {
@@ -840,6 +860,14 @@
         }
 
       }
+    }
+
+    .libraries-updates-see-all {
+      margin-top: $size-2;
+      text-align: right;
+      cursor: pointer;
+      color: $color-info;
+      text-decoration: underline;
     }
   }
 }
